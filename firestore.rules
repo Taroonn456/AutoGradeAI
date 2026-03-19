@@ -1,0 +1,95 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: faculty_profiles
+    // Document ID: {uid}
+    // Fields:
+    //   - uid: string (required) - The user's UID
+    //   - email: string (required) - The user's email
+    //   - displayName: string (optional) - The user's name
+    //   - role: string (required, enum: ['faculty', 'admin']) - The user's role
+    //   - createdAt: string (required, ISO 8601) - Creation timestamp
+    //
+    // Collection: evaluations
+    // Document ID: {evaluationId}
+    // Fields:
+    //   - facultyId: string (required) - UID of the faculty
+    //   - question: string (required) - The exam question
+    //   - totalMarks: number (required) - Max marks
+    //   - rubric: string (optional) - Rubric text
+    //   - modelAnswer: string (optional) - Model answer text
+    //   - studentAnswer: string (optional) - Student answer text
+    //   - result: map (required) - The evaluation result object
+    //   - createdAt: string (required, ISO 8601) - Creation timestamp
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/faculty_profiles/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "koyiladataroonn456@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidDateString(dateStr) {
+      return dateStr is string && dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$");
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidFacultyProfile(data) {
+      return data.keys().hasAll(['uid', 'email', 'role', 'createdAt']) &&
+             data.uid == request.auth.uid &&
+             isValidEmail(data.email) &&
+             data.role in ['faculty', 'admin'] &&
+             isValidDateString(data.createdAt);
+    }
+
+    function isValidEvaluation(data) {
+      return data.keys().hasAll(['facultyId', 'question', 'totalMarks', 'result', 'createdAt']) &&
+             data.facultyId == request.auth.uid &&
+             data.question is string && data.question.size() > 0 && data.question.size() < 5000 &&
+             data.totalMarks is number && data.totalMarks > 0 &&
+             data.result is map &&
+             isValidDateString(data.createdAt);
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /faculty_profiles/{uid} {
+      allow read: if isOwner(uid) || isAdmin();
+      allow create: if isOwner(uid) && isValidFacultyProfile(request.resource.data) && (request.resource.data.role == 'faculty' || isAdmin());
+      allow update: if isOwner(uid) && isValidFacultyProfile(request.resource.data) && (request.resource.data.role == resource.data.role || isAdmin());
+    }
+
+    match /evaluations/{evaluationId} {
+      allow read: if isAuthenticated() && (resource.data.facultyId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && isValidEvaluation(request.resource.data);
+      allow update: if isAuthenticated() && resource.data.facultyId == request.auth.uid && isValidEvaluation(request.resource.data);
+      allow delete: if isAuthenticated() && (resource.data.facultyId == request.auth.uid || isAdmin());
+    }
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "name": "ExamEval AI",
+  "description": "Automated exam evaluator using structured rubric logic and Gemini AI.",
+  "requestFramePermissions": []
+}
